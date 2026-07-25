@@ -8,26 +8,21 @@ async def run_llm(system: str, user: str) -> str:
     """
     prompt = f"System Instruction: {system}\n\nUser Input: {user}"
     
-    # Resolve agy path since pm2 might not have ~/.local/bin in PATH
-    agy_path = shutil.which("agy")
-    if not agy_path:
-        possible_paths = [
-            os.path.expanduser("~/.local/bin/agy"),
-            "/home/ubuntu/.local/bin/agy"
-        ]
-        for p in possible_paths:
-            if os.path.exists(p):
-                agy_path = p
-                break
+    # Use a login shell so that .bashrc/.profile paths are loaded, 
+    # fixing the pm2 daemon PATH issue where `agy` cannot be found.
+    # We pass the prompt via an environment variable to prevent shell injection.
+    env = os.environ.copy()
+    env["AGY_PROMPT"] = prompt
     
-    if not agy_path:
-        agy_path = "agy" # Fallback
-
+    bash_command = 'agy --print "$AGY_PROMPT" --dangerously-skip-permissions'
+    
     try:
+        # -l ensures it acts as a login shell (loads profiles)
         process = await asyncio.create_subprocess_exec(
-            agy_path, "--print", prompt, "--dangerously-skip-permissions",
+            "bash", "-l", "-c", bash_command,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
+            env=env
         )
         stdout, stderr = await process.communicate()
         
