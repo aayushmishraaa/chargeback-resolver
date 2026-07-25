@@ -1,0 +1,58 @@
+name: Deploy to AWS EC2
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Deploy to EC2 instance
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ubuntu
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+          echo "Starting Deployment..."
+          
+          # Ensure Node/NPM are loaded (NVM)
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+          
+          # Ensure PM2 is installed globally (for managing processes)
+          if ! command -v pm2 &> /dev/null; then
+              npm install -g pm2
+          fi
+          
+          # Clone or pull latest code
+          if [ ! -d "chargeback-resolver" ]; then
+            git clone https://github.com/${{ github.repository }}.git chargeback-resolver
+          fi
+          cd chargeback-resolver
+          git pull origin main
+          
+          # ==== DEPLOY BACKEND ====
+          echo "Deploying Backend..."
+          cd backend
+          python3 -m venv venv
+          source venv/bin/activate
+          pip install -r requirements.txt
+          
+          # Restart Backend Process
+          pm2 restart chargeback-backend || pm2 start "uvicorn main:app --host 0.0.0.0 --port 8000" --name chargeback-backend
+          
+          # ==== DEPLOY FRONTEND ====
+          echo "Deploying Frontend..."
+          cd ../frontend
+          npm ci
+          npm run build
+          
+          # Restart Frontend Process
+          pm2 restart chargeback-frontend || pm2 start "npm start" --name chargeback-frontend
+          
+          echo "Deployment Successful!"
