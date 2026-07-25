@@ -9,11 +9,11 @@ const DisputeSchema = z.object({
   customer_images: z.array(z.string()).nullable().optional()
 });
 
-export async function validateDispute(prevState: any, formData: FormData) {
+export async function validateDispute(prevState: unknown, formData: FormData) {
   const imagesJson = formData.get("customer_images") as string;
   let images = null;
   if (imagesJson) {
-    try { images = JSON.parse(imagesJson); } catch(e) {}
+    try { images = JSON.parse(imagesJson); } catch(_e) {}
   }
 
   const data = {

@@ -41,7 +41,7 @@ test.describe('Chargeback Dispute Resolver Arena', () => {
       const stream = new ReadableStream({
         async start(controller) {
           
-          const sendEvent = (event: string, data: any) => {
+          const sendEvent = (event: string, data: unknown) => {
             controller.enqueue(encoder.encode(`event: ${event}\n`));
             if (data) {
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n`));

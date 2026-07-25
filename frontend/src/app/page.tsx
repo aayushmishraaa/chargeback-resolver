@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback, useActionState } from "react";
 import { validateDispute } from "./actions";
 import { motion, AnimatePresence } from "framer-motion";
 import { fetchEventSource } from '@microsoft/fetch-event-source';
@@ -45,6 +45,7 @@ const TEMPLATES = {
 };
 
 export default function Home() {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [state, action, isPending] = useActionState<any, FormData>(validateDispute, {
     success: false,
     errors: null,
@@ -56,17 +57,71 @@ export default function Home() {
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [isResolving, setIsResolving] = useState(false);
   const [activeNode, setActiveNode] = useState<string | null>(null);
-  const [lastProcessedState, setLastProcessedState] = useState<any>(null);
+  const lastProcessedState = useRef<unknown>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   
   const endOfMessagesRef = useRef<HTMLDivElement>(null);
 
+  const startResolution = useCallback(async (data: unknown) => {
+    setIsResolving(true);
+    setDebateHistory([]);
+    setVerdict(null);
+    setActiveNode("Initializing Engine");
+
+    try {
+      await fetchEventSource("http://localhost:8000/api/resolve", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "text/event-stream",
+        },
+        body: JSON.stringify(data),
+        onopen() {
+          return Promise.resolve();
+        },
+        onmessage(ev) {
+          if (ev.event === "close" || ev.data === "done") {
+             setIsResolving(false);
+             setActiveNode("Session Concluded");
+             return;
+          }
+          
+          if (ev.event === "message") {
+            try {
+              const parsed = JSON.parse(ev.data);
+              setActiveNode(parsed.node);
+              
+              if (parsed.state.debate_history) {
+                setDebateHistory(parsed.state.debate_history);
+              }
+              
+              if (parsed.state.verdict) {
+                setVerdict(parsed.state.verdict);
+              }
+            } catch (e) {
+              console.error("Error parsing SSE event:", e);
+            }
+          }
+        },
+        onerror() {
+          setIsResolving(false);
+          setActiveNode("Connection Error");
+          throw new Error("Connection lost");
+        }
+      });
+    } catch (e) {
+      console.error(e);
+      setIsResolving(false);
+      setActiveNode("Connection Failed");
+    }
+  }, []);
+
   useEffect(() => {
-    if (state.success && state.data && state !== lastProcessedState) {
-      setLastProcessedState(state);
+    if (state.success && state.data && state !== lastProcessedState.current) {
+      lastProcessedState.current = state;
       startResolution(state.data);
     }
-  }, [state, lastProcessedState]);
+  }, [state, startResolution]);
 
   useEffect(() => {
     endOfMessagesRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -114,64 +169,6 @@ export default function Home() {
     a.download = `Audit_Report_${formData.id}.txt`;
     a.click();
     URL.revokeObjectURL(url);
-  };
-
-  const startResolution = async (data: any) => {
-    setIsResolving(true);
-    setDebateHistory([]);
-    setVerdict(null);
-    setActiveNode("Initializing Engine");
-
-    try {
-      await fetchEventSource("http://localhost:8000/api/resolve", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "text/event-stream",
-        },
-        body: JSON.stringify(data),
-        onopen(res) {
-          return Promise.resolve();
-        },
-        onmessage(ev) {
-          if (ev.event === "close" || ev.data === "done") {
-             setIsResolving(false);
-             setActiveNode("Session Concluded");
-             return;
-          }
-          if (ev.event === "message") {
-            try {
-              const eventData = JSON.parse(ev.data);
-              
-              // Format node name beautifully
-              let nodeName = eventData.node;
-              if (nodeName === 'customer_agent') nodeName = 'Customer Representative';
-              if (nodeName === 'merchant_agent') nodeName = 'Merchant Analyst';
-              if (nodeName === 'arbiter_judge') nodeName = 'Visa/MC Arbiter';
-              setActiveNode(nodeName);
-
-              if (eventData.state.debate_history) {
-                 setDebateHistory(prev => [...prev, ...eventData.state.debate_history]);
-              }
-              if (eventData.state.verdict) {
-                 setVerdict(eventData.state.verdict);
-              }
-            } catch (e) {
-              console.error("Failed to parse SSE JSON", e);
-            }
-          }
-        },
-        onerror(err) {
-          console.error("EventSource Error:", err);
-          setIsResolving(false);
-          setActiveNode("System Error");
-          throw err;
-        }
-      });
-    } catch (err) {
-      setIsResolving(false);
-      setActiveNode("Connection Failed");
-    }
   };
 
   const getAgentIcon = (agent: string) => {
