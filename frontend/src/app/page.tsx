@@ -69,7 +69,7 @@ export default function Home() {
     setActiveNode("Initializing Engine");
 
     try {
-      await fetchEventSource("http://localhost:8000/api/resolve", {
+      await fetchEventSource("/api/resolve", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
